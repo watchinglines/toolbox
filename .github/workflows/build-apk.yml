@@ -1,4 +1,4 @@
-name: Build Android APK (SDK 34 稳定版)
+name: Build Android APK (SDK 34 最终版)
 
 on:
   push:
