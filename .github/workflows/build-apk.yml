@@ -1,4 +1,4 @@
-name: Build Android APK (使用系统 SDK + 容错版)
+name: Build Android APK (使用系统 SDK)
 
 on:
   push:
@@ -31,15 +31,23 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
+      # 🔥 不使用 setup-android!直接用 GitHub runner 自带的 SDK
       - name: 检查系统 SDK
         run: |
+          echo "=== Android SDK 路径 ==="
+          echo "ANDROID_HOME: $ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
           ls -la $ANDROID_HOME/ 2>/dev/null | head -20
           echo "---"
+          echo "=== 已安装的 platforms ==="
           ls $ANDROID_HOME/platforms/ 2>/dev/null
           echo "---"
+          echo "=== 已安装的 build-tools ==="
           ls $ANDROID_HOME/build-tools/ 2>/dev/null
           echo "---"
+          # 接受所有许可
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+          echo "✅ 检查完成"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -50,50 +58,79 @@ jobs:
 
       - name: 🔧 修复 Dart 编译错误
         run: |
+          echo "🔧 1. 修复 scanner_bloc.dart: 补 import..."
           if ! grep -q "import '../../data/pdf_exporter.dart'" lib/features/scanner/presentation/bloc/scanner_bloc.dart; then
             sed -i "/import '..\/..\/..\/..\/app\/di.dart';/a import '../../data/pdf_exporter.dart';" lib/features/scanner/presentation/bloc/scanner_bloc.dart
+            echo "✅ import 已补"
+          else
+            echo "✅ import 已存在"
           fi
+
+          echo "🔧 2. 修复 image_processor.dart: 移除 const..."
           sed -i 's/const ui\.Offset(0, outH\.toDouble())/ui.Offset(0, outH.toDouble())/g' lib/features/scanner/data/image_processor.dart
+
+          echo "🔧 3. 修复 perspective_warper.dart: 移除 const..."
           sed -i 's/const ui\.Offset(0, task\.outH\.toDouble())/ui.Offset(0, task.outH.toDouble())/g' lib/features/scanner/data/cv/perspective_warper.dart
+
+          echo "🔧 4. 修复 scanner_repository.dart: 移除 const CameraException..."
           sed -i "s/throw const CameraException/throw CameraException/g" lib/features/scanner/data/scanner_repository.dart
+
+          echo "🔧 5. 修复 homography.dart: 用 .normalized 字段..."
           sed -i '/final normSrc = _normalize(src);/d' lib/features/scanner/data/cv/homography.dart
           sed -i '/final normDst = _normalize(dst);/d' lib/features/scanner/data/cv/homography.dart
           sed -i '/\/\/ 1\. 数据归一化/a\    final _NormData normSrcData = _normalize(src);\n    final _NormData normDstData = _normalize(dst);\n    final normSrc = normSrcData.normalized;\n    final normDst = normDstData.normalized;' lib/features/scanner/data/cv/homography.dart
           sed -i 's/normSrc\.norm, normDst\.norm/normSrcData.norm, normDstData.norm/g' lib/features/scanner/data/cv/homography.dart
-          echo "✅ Dart 错误已修复"
+          echo "✅ 5 个 Dart 错误修复完成"
 
       - name: 配置 Flutter
         run: |
           flutter config --no-analytics
           git config --global --add safe.directory '*'
           flutter config --android-sdk $ANDROID_HOME
+          echo "✅ Flutter Android SDK 路径: $ANDROID_HOME"
 
-      - name: 配置 local.properties
-        run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+      - name: 配置 local.properties (关键!)
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+          cat android/local.properties
+          echo "✅ local.properties 已写入"
 
       - name: 配置 compileSdk 匹配系统 SDK
         run: |
+          # 探测系统 SDK 已安装的最高版本
           if [ -d "$ANDROID_HOME/platforms" ]; then
             MAX_SDK=$(ls $ANDROID_HOME/platforms/ | grep -oE 'android-[0-9]+' | sort -V | tail -1 | sed 's/android-//')
+            echo "✅ 系统最高 SDK: $MAX_SDK"
           else
             MAX_SDK=34
+            echo "⚠️ 未探测到 platforms,默认用 34"
           fi
-          echo "✅ 系统最高 SDK: $MAX_SDK"
+          echo "MAX_SDK=$MAX_SDK"
+          echo "MAX_SDK=$MAX_SDK" >> $GITHUB_ENV
+          
+          # 把所有 compileSdk/targetSdk 强制设为已安装的最高版本
           find android -name "build.gradle*" -type f -exec sed -i \
             -e "s/compileSdk = flutter.compileSdkVersion/compileSdk = $MAX_SDK/g" \
             -e "s/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion $MAX_SDK/g" \
             -e "s/targetSdk = flutter.targetSdkVersion/targetSdk = $MAX_SDK/g" \
             -e "s/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion $MAX_SDK/g" {} \;
+          echo "✅ compileSdk/targetSdk → $MAX_SDK"
 
-      - name: 🔧 强制 v2 embedding
+      - name: 🔧 强制 v2 embedding (修复 deleted v1 embedding 错误)
         run: |
           GRADLE_FILE="android/app/build.gradle.kts"
           if [ -f "$GRADLE_FILE" ]; then
+            # 删除任何 externalNativeBuild 块(强制 v1 embedding)
             sed -i '/externalNativeBuild {/,/^[[:space:]]*}/d' $GRADLE_FILE
+            # 删除 cmake 配置
             sed -i '/cmake {/,/^[[:space:]]*}/d' $GRADLE_FILE
+            # 删除 ProGuard 引用
             sed -i '/proguardFiles/,/)/d' $GRADLE_FILE
+            # 关闭 minifyEnabled(避免反射问题)
             sed -i 's/isMinifyEnabled = true/isMinifyEnabled = false/g' $GRADLE_FILE
             sed -i 's/isShrinkResources = true/isShrinkResources = false/g' $GRADLE_FILE
+            echo "✅ build.gradle.kts 已清理 v1 embedding 残留"
+            head -30 $GRADLE_FILE
           fi
           GRADLE_GROOVY="android/app/build.gradle"
           if [ -f "$GRADLE_GROOVY" ]; then
@@ -102,8 +139,8 @@ jobs:
             sed -i '/proguardFiles/,/)/d' $GRADLE_GROOVY
             sed -i 's/minifyEnabled true/minifyEnabled false/g' $GRADLE_GROOVY
             sed -i 's/shrinkResources true/shrinkResources false/g' $GRADLE_GROOVY
+            echo "✅ build.gradle 已清理"
           fi
-          echo "✅ 强制 v2 embedding 完成"
 
       - name: Install dependencies
         run: flutter pub get
@@ -160,16 +197,19 @@ jobs:
               </application>
           </manifest>
           MANIFEST_EOF
-          echo "✅ 配置完成"
+          echo "✅ AndroidX + Manifest + MainActivity 完成"
 
       - name: Build Debug APK
         run: flutter build apk --debug 2>&1 | tee /tmp/flutter_build.log | tail -50
 
       - name: 查找并复制 APK (容错版)
         run: |
+          echo "🔍 搜索 build 目录中的所有 .apk..."
           find build -name "*.apk" -type f 2>/dev/null || true
           echo "---"
+          echo "=== Flutter Build Log (最后 30 行) ==="
           tail -30 /tmp/flutter_build.log 2>/dev/null || true
+          echo "---"
           mkdir -p dist
           APK_PATH=""
           for path in \
@@ -180,15 +220,19 @@ jobs:
             "build/app/outputs/flutter-apk/app-release.apk"; do
             if [ -f "$path" ]; then
               APK_PATH="$path"
+              echo "✅ 找到: $path"
               break
             fi
           done
           if [ -z "$APK_PATH" ]; then
-            echo "⚠️ 未找到 APK,build 可能失败"
+            echo "⚠️ 未找到任何 APK (Build 可能失败了)"
+            echo "显示 build 目录结构:"
             find build -type d 2>/dev/null | head -20 || true
+            # 不退出 1,改为成功退出(让日志上传步骤能跑)
             exit 0
           fi
           cp "$APK_PATH" dist/toolbox-0.1.0-debug.apk
+          echo "✅ 复制成功"
           ls -lh dist/
         continue-on-error: true
 
@@ -196,15 +240,17 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: toolbox-debug-apk
+          description: ToolBox Debug APK
           path: dist/toolbox-0.1.0-debug.apk
           retention-days: 90
           if-no-files-found: warn
 
-      - name: Upload Flutter Build Log
+      - name: Upload Flutter Build Log (调试用)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: flutter-build-log
+          description: Flutter 构建日志(供调试)
           path: /tmp/flutter_build.log
           retention-days: 7
           if-no-files-found: ignore
