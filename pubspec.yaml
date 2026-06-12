@@ -1,0 +1,48 @@
+name: toolbox_scanner
+description: "ToolBox Scanner Prototype - 工具集 App 扫描功能原型"
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.5.0
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # 状态管理
+  flutter_bloc: ^8.1.6
+  equatable: ^2.0.5
+
+  # 相机 + 图像处理
+  camera: ^0.11.0+2
+  image: ^4.3.0
+  image_picker: ^1.1.2
+  path_provider: ^2.1.5
+
+  # OCR (本地引擎)
+  google_mlkit_text_recognition: ^0.13.0
+  # 备选: ML Kit 文档扫描(自动边缘检测 + 透视矫正)
+  google_mlkit_document_scanner: ^0.3.0
+
+  # PDF 导出
+  pdf: ^3.11.1
+
+  # 工具
+  permission_handler: ^11.3.1
+  get_it: ^7.7.0
+
+  # FFI (OpenCV 桥接)
+  ffi: ^2.1.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  bloc_test: ^9.1.7
+  mocktail: ^1.0.4
+
+flutter:
+  uses-material-design: true
