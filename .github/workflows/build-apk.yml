@@ -1,4 +1,4 @@
-name: Build Android APK (v2 embedding 终极修复版)
+name: Build Android APK (Dart 修复 + SDK 35 终极版)
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build-apk:
-    name: Build Release APK
+    name: Build Debug APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -27,7 +27,7 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      - name: 设置 Android SDK
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
           cmdline-tools-version: '11076708'
@@ -48,47 +48,58 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: 🔥 终极修复 - 重建 android 目录
+      - name: 🔧 修复 Dart 编译错误
         run: |
-          echo "🗑️  删除整个 android 目录..."
-          rm -rf android
-          echo "🏗️  重新生成 android 目录..."
-          flutter create --org com.toolbox --project-name scanner --platforms=android --no-pub . 2>&1 | tail -20
-          echo "✅ 重建完成"
-          
-          # 升级 compileSdk 到 35
-          if [ -f android/app/build.gradle.kts ]; then
-            sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 35/' android/app/build.gradle.kts
-            sed -i 's/compileSdk = 34/compileSdk = 35/' android/app/build.gradle.kts
-            sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 35/' android/app/build.gradle.kts
-            sed -i 's/targetSdk = 34/targetSdk = 35/' android/app/build.gradle.kts
-            echo "✅ build.gradle.kts: compileSdk/targetSdk → 35"
+          echo "🔧 1. 修复 scanner_bloc.dart: 补 import..."
+          if ! grep -q "import '../../data/pdf_exporter.dart'" lib/features/scanner/presentation/bloc/scanner_bloc.dart; then
+            sed -i "/import '..\/..\/..\/..\/app\/di.dart';/a import '../../data/pdf_exporter.dart';" lib/features/scanner/presentation/bloc/scanner_bloc.dart
+            echo "✅ import 已补"
+          else
+            echo "✅ import 已存在"
           fi
-          if [ -f android/app/build.gradle ]; then
-            sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 35/' android/app/build.gradle
-            sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 35/' android/app/build.gradle
-            echo "✅ build.gradle: compileSdk/targetSdk → 35"
-          fi
-          ls -la android/
 
-      - name: Configure Flutter
+          echo "🔧 2. 修复 image_processor.dart: 移除 const..."
+          sed -i 's/const ui\.Offset(0, outH\.toDouble())/ui.Offset(0, outH.toDouble())/g' lib/features/scanner/data/image_processor.dart
+          echo "✅ const 已移除"
+
+          echo "🔧 3. 修复 perspective_warper.dart: 移除 const..."
+          sed -i 's/const ui\.Offset(0, task\.outH\.toDouble())/ui.Offset(0, task.outH.toDouble())/g' lib/features/scanner/data/cv/perspective_warper.dart
+          echo "✅ const 已移除"
+
+          echo "🔧 4. 修复 scanner_repository.dart: 移除 const CameraException..."
+          sed -i "s/throw const CameraException/throw CameraException/g" lib/features/scanner/data/scanner_repository.dart
+          echo "✅ const 已移除"
+
+          echo "🔧 5. 修复 homography.dart: 用 .normalized 字段..."
+          sed -i '/final normSrc = _normalize(src);/d' lib/features/scanner/data/cv/homography.dart
+          sed -i '/final normDst = _normalize(dst);/d' lib/features/scanner/data/cv/homography.dart
+          sed -i '/\/\/ 1\. 数据归一化/a\    final _NormData normSrcData = _normalize(src);\n    final _NormData normDstData = _normalize(dst);\n    final normSrc = normSrcData.normalized;\n    final normDst = normDstData.normalized;' lib/features/scanner/data/cv/homography.dart
+          sed -i 's/normSrc\.norm, normDst\.norm/normSrcData.norm, normDstData.norm/g' lib/features/scanner/data/cv/homography.dart
+          echo "✅ _NormData 修复"
+
+          echo "--- 验证修复结果 ---"
+          grep "pdf_exporter" lib/features/scanner/presentation/bloc/scanner_bloc.dart | head -2
+          grep "ui.Offset(0, outH" lib/features/scanner/data/image_processor.dart
+          grep "ui.Offset(0, task.outH" lib/features/scanner/data/cv/perspective_warper.dart
+          grep "throw.*CameraException" lib/features/scanner/data/scanner_repository.dart
+          grep "normSrcData" lib/features/scanner/data/cv/homography.dart | head -3
+
+      - name: 配置 Flutter
         run: |
           flutter config --no-analytics
           git config --global --add safe.directory '*'
 
+      - name: 升级 compileSdk 到 35
+        run: |
+          find android -name "build.gradle*" -type f -exec sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 35/g; s/compileSdk = 34/compileSdk = 35/g; s/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 35/g; s/compileSdkVersion 34/compileSdkVersion 35/g; s/targetSdk = flutter.targetSdkVersion/targetSdk = 35/g; s/targetSdk = 34/targetSdk = 35/g; s/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 35/g; s/targetSdkVersion 34/targetSdkVersion 35/g' {} \;
+          echo "✅ compileSdk/targetSdk → 35"
+          grep -A1 "compileSdk\|targetSdk" android/app/build.gradle.kts | head -10
+
       - name: Install dependencies
         run: flutter pub get
 
-      - name: 配置签名 + AndroidX
+      - name: 配置 AndroidX + Manifest
         run: |
-          mkdir -p android/app
-          keytool -genkey -v -keystore android/app/upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload -storepass toolbox2026 -keypass toolbox2026 -dname "CN=ToolBox" 2>&1 | tail -3
-          cat > android/key.properties << 'EOF'
-          storePassword=toolbox2026
-          keyPassword=toolbox2026
-          keyAlias=upload
-          storeFile=upload-keystore.jks
-          EOF
           cat > android/gradle.properties << 'EOF'
           org.gradle.jvmargs=-Xmx4G -XX:MaxMetaspaceSize=2G -XX:+HeapDumpOnOutOfMemoryError
           android.useAndroidX=true
@@ -97,10 +108,6 @@ jobs:
           android.defaults.buildfeatures.buildconfig=true
           kotlin.code.style=official
           EOF
-          echo "✅ 配置完成"
-
-      - name: 覆盖 MainActivity + Manifest
-        run: |
           mkdir -p android/app/src/main/kotlin/com/toolbox/scanner
           cat > android/app/src/main/kotlin/com/toolbox/scanner/MainActivity.kt << 'KT_EOF'
           package com.toolbox.scanner
@@ -141,10 +148,10 @@ jobs:
               </application>
           </manifest>
           MANIFEST_EOF
-          echo "✅ 覆盖完成"
+          echo "✅ AndroidX + Manifest 完成"
 
       - name: Build Debug APK
-        run: flutter build apk --debug
+        run: flutter build apk --debug 2>&1 | tail -30
 
       - name: 复制到 dist
         run: |
