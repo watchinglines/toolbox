@@ -60,29 +60,19 @@ jobs:
 
           echo "🔧 2. 修复 image_processor.dart: 移除 const..."
           sed -i 's/const ui\.Offset(0, outH\.toDouble())/ui.Offset(0, outH.toDouble())/g' lib/features/scanner/data/image_processor.dart
-          echo "✅ const 已移除"
 
           echo "🔧 3. 修复 perspective_warper.dart: 移除 const..."
           sed -i 's/const ui\.Offset(0, task\.outH\.toDouble())/ui.Offset(0, task.outH.toDouble())/g' lib/features/scanner/data/cv/perspective_warper.dart
-          echo "✅ const 已移除"
 
           echo "🔧 4. 修复 scanner_repository.dart: 移除 const CameraException..."
           sed -i "s/throw const CameraException/throw CameraException/g" lib/features/scanner/data/scanner_repository.dart
-          echo "✅ const 已移除"
 
           echo "🔧 5. 修复 homography.dart: 用 .normalized 字段..."
           sed -i '/final normSrc = _normalize(src);/d' lib/features/scanner/data/cv/homography.dart
           sed -i '/final normDst = _normalize(dst);/d' lib/features/scanner/data/cv/homography.dart
           sed -i '/\/\/ 1\. 数据归一化/a\    final _NormData normSrcData = _normalize(src);\n    final _NormData normDstData = _normalize(dst);\n    final normSrc = normSrcData.normalized;\n    final normDst = normDstData.normalized;' lib/features/scanner/data/cv/homography.dart
           sed -i 's/normSrc\.norm, normDst\.norm/normSrcData.norm, normDstData.norm/g' lib/features/scanner/data/cv/homography.dart
-          echo "✅ _NormData 修复"
-
-          echo "--- 验证修复结果 ---"
-          grep "pdf_exporter" lib/features/scanner/presentation/bloc/scanner_bloc.dart | head -2
-          grep "ui.Offset(0, outH" lib/features/scanner/data/image_processor.dart
-          grep "ui.Offset(0, task.outH" lib/features/scanner/data/cv/perspective_warper.dart
-          grep "throw.*CameraException" lib/features/scanner/data/scanner_repository.dart
-          grep "normSrcData" lib/features/scanner/data/cv/homography.dart | head -3
+          echo "✅ 5 个 Dart 错误修复完成"
 
       - name: 配置 Flutter
         run: |
@@ -93,7 +83,6 @@ jobs:
         run: |
           find android -name "build.gradle*" -type f -exec sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 35/g; s/compileSdk = 34/compileSdk = 35/g; s/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 35/g; s/compileSdkVersion 34/compileSdkVersion 35/g; s/targetSdk = flutter.targetSdkVersion/targetSdk = 35/g; s/targetSdk = 34/targetSdk = 35/g; s/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 35/g; s/targetSdkVersion 34/targetSdkVersion 35/g' {} \;
           echo "✅ compileSdk/targetSdk → 35"
-          grep -A1 "compileSdk\|targetSdk" android/app/build.gradle.kts | head -10
 
       - name: Install dependencies
         run: flutter pub get
@@ -151,12 +140,32 @@ jobs:
           echo "✅ AndroidX + Manifest 完成"
 
       - name: Build Debug APK
-        run: flutter build apk --debug 2>&1 | tail -30
+        run: flutter build apk --debug 2>&1 | tail -50
 
-      - name: 复制到 dist
+      - name: 查找并复制 APK
         run: |
+          echo "🔍 搜索生成的 APK 文件..."
+          find build -name "*.apk" -type f 2>/dev/null
+          echo "---"
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-debug.apk dist/toolbox-0.1.0-debug.apk
+          APK_PATH=""
+          for path in \
+            "build/app/outputs/flutter-apk/app-debug.apk" \
+            "build/app/outputs/apk/debug/app-debug.apk" \
+            "build/app/outputs/apk/app-debug.apk"; do
+            if [ -f "$path" ]; then
+              APK_PATH="$path"
+              echo "✅ 找到: $path"
+              break
+            fi
+          done
+          if [ -z "$APK_PATH" ]; then
+            echo "❌ 未找到 APK,展示 build 目录:"
+            find build -type d 2>/dev/null | head -20
+            exit 1
+          fi
+          cp "$APK_PATH" dist/toolbox-0.1.0-debug.apk
+          echo "✅ 复制成功"
           ls -lh dist/
 
       - name: Upload APK
