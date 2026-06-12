@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Android APK (auto-fix paths)
 
 on:
   workflow_dispatch:
@@ -13,14 +13,58 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # =============== AUTO-FIX FILE PATHS ===============
+      - name: Auto-fix misplaced files
+        run: |
+          echo "=== BEFORE: root files ==="
+          ls -la
+          echo ""
+
+          # Move android-app-build.gradle -> android/app/build.gradle
+          if [ -f "android-app-build.gradle" ]; then
+            mkdir -p android/app
+            mv -v "android-app-build.gradle" "android/app/build.gradle"
+          fi
+
+          # Move android-app-src-main-AndroidManifest.xml -> android/app/src/main/AndroidManifest.xml
+          if [ -f "android-app-src-main-AndroidManifest.xml" ]; then
+            mkdir -p android/app/src/main
+            mv -v "android-app-src-main-AndroidManifest.xml" "android/app/src/main/AndroidManifest.xml"
+          fi
+
+          # Move android-gradle.properties -> android/gradle.properties
+          if [ -f "android-gradle.properties" ]; then
+            mkdir -p android
+            mv -v "android-gradle.properties" "android/gradle.properties"
+          fi
+
+          # Move MainActivity.kt -> android/app/src/main/kotlin/com/toolbox/scanner/MainActivity.kt
+          if [ -f "MainActivity.kt" ]; then
+            mkdir -p android/app/src/main/kotlin/com/toolbox/scanner
+            mv -v "MainActivity.kt" "android/app/src/main/kotlin/com/toolbox/scanner/MainActivity.kt"
+          fi
+
+          # Also handle build-apk.yml if it was misplaced at root
+          # (no action needed, .github/workflows/build-apk.yml is already correct path)
+
+          echo ""
+          echo "=== AFTER: project tree ==="
+          ls -la
+          echo "--- android dir ---"
+          find android -type f 2>/dev/null
+      # ==================================================
+
       - name: Verify v2 embedding config
         run: |
           echo "=== MainActivity ==="
           find android -name "MainActivity.*" -exec echo "--- {} ---" \; -exec cat {} \;
+          echo ""
           echo "=== AndroidManifest flutterEmbedding ==="
           grep -A1 flutterEmbedding android/app/src/main/AndroidManifest.xml || echo "MISSING"
+          echo ""
           echo "=== app build.gradle (first 50 lines) ==="
           head -50 android/app/build.gradle
+          echo ""
           echo "=== gradle.properties ==="
           cat android/gradle.properties
 
