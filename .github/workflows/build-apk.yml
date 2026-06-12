@@ -27,15 +27,13 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          cmdline-tools-version: '11076708'
-          packages: |
-            platforms;android-35
-            build-tools;35.0.0
-          accept-android-sdk-licenses: true
-          log-accepted-android-sdk-licenses: false
+   - name: Set up Android SDK
+  uses: android-actions/setup-android@v3
+  with:
+    packages: |
+      platforms;android-34     ← 改回 34
+      build-tools;34.0.0       ← 改回 34
+    accept-android-sdk-licenses: true
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -75,10 +73,12 @@ jobs:
           flutter config --no-analytics
           git config --global --add safe.directory '*'
 
-      - name: 升级 compileSdk 到 35
+           - name: 升级 compileSdk 到 34 (避免 SDK 35 下载)
         run: |
-          find android -name "build.gradle*" -type f -exec sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 35/g; s/compileSdk = 34/compileSdk = 35/g; s/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 35/g; s/compileSdkVersion 34/compileSdkVersion 35/g; s/targetSdk = flutter.targetSdkVersion/targetSdk = 35/g; s/targetSdk = 34/targetSdk = 35/g; s/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 35/g; s/targetSdkVersion 34/targetSdkVersion 35/g' {} \;
-          echo "✅ compileSdk/targetSdk → 35"
+          # 强制设到 34 (GitHub runner 支持的最新版本)
+          find android -name "build.gradle*" -type f -exec sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 34/g; s/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 34/g; s/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g; s/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 34/g' {} \;
+          echo "✅ compileSdk/targetSdk → 34 (runner 支持)"
+
 
       - name: Install dependencies
         run: flutter pub get
