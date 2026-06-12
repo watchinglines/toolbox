@@ -1,267 +1,86 @@
-name: Build Android APK (使用系统 SDK)
+name: Build Android APK
 
 on:
-  push:
-    branches: [ main, master, develop ]
-  pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
-
-permissions:
-  contents: read
+  push:
+    branches: [ main, master ]
 
 jobs:
-  build-apk:
-    name: Build Debug APK
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    env:
-      ANDROID_HOME: /usr/local/lib/android/sdk
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-
+    timeout-minutes: 60
     steps:
-      - name: Checkout source
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Verify v2 embedding config
+        run: |
+          echo "=== MainActivity ==="
+          find android -name "MainActivity.*" -exec echo "--- {} ---" \; -exec cat {} \;
+          echo "=== AndroidManifest flutterEmbedding ==="
+          grep -A1 flutterEmbedding android/app/src/main/AndroidManifest.xml || echo "MISSING"
+          echo "=== app build.gradle (first 50 lines) ==="
+          head -50 android/app/build.gradle
+          echo "=== gradle.properties ==="
+          cat android/gradle.properties
+
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
+          distribution: temurin
           java-version: '17'
-          distribution: 'temurin'
-          cache: gradle
 
-      # 🔥 不使用 setup-android!直接用 GitHub runner 自带的 SDK
-      - name: 检查系统 SDK
-        run: |
-          echo "=== Android SDK 路径 ==="
-          echo "ANDROID_HOME: $ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
-          ls -la $ANDROID_HOME/ 2>/dev/null | head -20
-          echo "---"
-          echo "=== 已安装的 platforms ==="
-          ls $ANDROID_HOME/platforms/ 2>/dev/null
-          echo "---"
-          echo "=== 已安装的 build-tools ==="
-          ls $ANDROID_HOME/build-tools/ 2>/dev/null
-          echo "---"
-          # 接受所有许可
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
-          echo "✅ 检查完成"
-
-      - name: Set up Flutter
+      - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.24.5'
-          channel: 'stable'
+          channel: stable
           cache: true
 
-      - name: 🔧 修复 Dart 编译错误
-        run: |
-          echo "🔧 1. 修复 scanner_bloc.dart: 补 import..."
-          if ! grep -q "import '../../data/pdf_exporter.dart'" lib/features/scanner/presentation/bloc/scanner_bloc.dart; then
-            sed -i "/import '..\/..\/..\/..\/app\/di.dart';/a import '../../data/pdf_exporter.dart';" lib/features/scanner/presentation/bloc/scanner_bloc.dart
-            echo "✅ import 已补"
-          else
-            echo "✅ import 已存在"
-          fi
-
-          echo "🔧 2. 修复 image_processor.dart: 移除 const..."
-          sed -i 's/const ui\.Offset(0, outH\.toDouble())/ui.Offset(0, outH.toDouble())/g' lib/features/scanner/data/image_processor.dart
-
-          echo "🔧 3. 修复 perspective_warper.dart: 移除 const..."
-          sed -i 's/const ui\.Offset(0, task\.outH\.toDouble())/ui.Offset(0, task.outH.toDouble())/g' lib/features/scanner/data/cv/perspective_warper.dart
-
-          echo "🔧 4. 修复 scanner_repository.dart: 移除 const CameraException..."
-          sed -i "s/throw const CameraException/throw CameraException/g" lib/features/scanner/data/scanner_repository.dart
-
-          echo "🔧 5. 修复 homography.dart: 用 .normalized 字段..."
-          sed -i '/final normSrc = _normalize(src);/d' lib/features/scanner/data/cv/homography.dart
-          sed -i '/final normDst = _normalize(dst);/d' lib/features/scanner/data/cv/homography.dart
-          sed -i '/\/\/ 1\. 数据归一化/a\    final _NormData normSrcData = _normalize(src);\n    final _NormData normDstData = _normalize(dst);\n    final normSrc = normSrcData.normalized;\n    final normDst = normDstData.normalized;' lib/features/scanner/data/cv/homography.dart
-          sed -i 's/normSrc\.norm, normDst\.norm/normSrcData.norm, normDstData.norm/g' lib/features/scanner/data/cv/homography.dart
-          echo "✅ 5 个 Dart 错误修复完成"
-
-      - name: 配置 Flutter
-        run: |
-          flutter config --no-analytics
-          git config --global --add safe.directory '*'
-          flutter config --android-sdk $ANDROID_HOME
-          echo "✅ Flutter Android SDK 路径: $ANDROID_HOME"
-
-      - name: 配置 local.properties (关键!)
-        run: |
-          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
-          cat android/local.properties
-          echo "✅ local.properties 已写入"
-
-      - name: 配置 compileSdk 匹配系统 SDK
-        run: |
-          # 探测系统 SDK 已安装的最高版本
-          if [ -d "$ANDROID_HOME/platforms" ]; then
-            MAX_SDK=$(ls $ANDROID_HOME/platforms/ | grep -oE 'android-[0-9]+' | sort -V | tail -1 | sed 's/android-//')
-            echo "✅ 系统最高 SDK: $MAX_SDK"
-          else
-            MAX_SDK=34
-            echo "⚠️ 未探测到 platforms,默认用 34"
-          fi
-          echo "MAX_SDK=$MAX_SDK"
-          echo "MAX_SDK=$MAX_SDK" >> $GITHUB_ENV
-          
-          # 把所有 compileSdk/targetSdk 强制设为已安装的最高版本
-          find android -name "build.gradle*" -type f -exec sed -i \
-            -e "s/compileSdk = flutter.compileSdkVersion/compileSdk = $MAX_SDK/g" \
-            -e "s/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion $MAX_SDK/g" \
-            -e "s/targetSdk = flutter.targetSdkVersion/targetSdk = $MAX_SDK/g" \
-            -e "s/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion $MAX_SDK/g" {} \;
-          echo "✅ compileSdk/targetSdk → $MAX_SDK"
-
-      - name: 🔧 强制 v2 embedding (修复 deleted v1 embedding 错误)
-        run: |
-          GRADLE_FILE="android/app/build.gradle.kts"
-          if [ -f "$GRADLE_FILE" ]; then
-            # 删除任何 externalNativeBuild 块(强制 v1 embedding)
-            sed -i '/externalNativeBuild {/,/^[[:space:]]*}/d' $GRADLE_FILE
-            # 删除 cmake 配置
-            sed -i '/cmake {/,/^[[:space:]]*}/d' $GRADLE_FILE
-            # 删除 ProGuard 引用
-            sed -i '/proguardFiles/,/)/d' $GRADLE_FILE
-            # 关闭 minifyEnabled(避免反射问题)
-            sed -i 's/isMinifyEnabled = true/isMinifyEnabled = false/g' $GRADLE_FILE
-            sed -i 's/isShrinkResources = true/isShrinkResources = false/g' $GRADLE_FILE
-            echo "✅ build.gradle.kts 已清理 v1 embedding 残留"
-            head -30 $GRADLE_FILE
-          fi
-          GRADLE_GROOVY="android/app/build.gradle"
-          if [ -f "$GRADLE_GROOVY" ]; then
-            sed -i '/externalNativeBuild {/,/^[[:space:]]*}/d' $GRADLE_GROOVY
-            sed -i '/cmake {/,/^[[:space:]]*}/d' $GRADLE_GROOVY
-            sed -i '/proguardFiles/,/)/d' $GRADLE_GROOVY
-            sed -i 's/minifyEnabled true/minifyEnabled false/g' $GRADLE_GROOVY
-            sed -i 's/shrinkResources true/shrinkResources false/g' $GRADLE_GROOVY
-            echo "✅ build.gradle 已清理"
-          fi
-
-      - name: Install dependencies
+      - name: Get dependencies
         run: flutter pub get
 
-      - name: 配置 AndroidX + Manifest + MainActivity
+      - name: Build APK
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: |
-          cat > android/gradle.properties << 'EOF'
-          org.gradle.jvmargs=-Xmx4G -XX:MaxMetaspaceSize=2G -XX:+HeapDumpOnOutOfMemoryError
-          android.useAndroidX=true
-          android.enableJetifier=true
-          android.nonTransitiveRClass=true
-          android.defaults.buildfeatures.buildconfig=true
-          kotlin.code.style=official
-          EOF
+          flutter build apk --release -v 2>&1 | tee /tmp/flutter_build.log
+        continue-on-error: true
 
-          mkdir -p android/app/src/main/kotlin/com/toolbox/scanner
-          cat > android/app/src/main/kotlin/com/toolbox/scanner/MainActivity.kt << 'KT_EOF'
-          package com.toolbox.scanner
-          import io.flutter.embedding.android.FlutterActivity
-          import io.flutter.embedding.engine.FlutterEngine
-          import io.flutter.plugin.common.MethodChannel
-
-          class MainActivity : FlutterActivity() {
-              private val CHANNEL = "com.toolbox/native"
-              override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-                  super.configureFlutterEngine(flutterEngine)
-                  MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
-                      .setMethodCallHandler { call, result ->
-                          when (call.method) {
-                              "getPlatformVersion" -> result.success("Android ${android.os.Build.VERSION.RELEASE}")
-                              "scanDocument" -> result.success(null)
-                              "startAR" -> result.success(null)
-                              else -> result.notImplemented()
-                          }
-                      }
-              }
-          }
-          KT_EOF
-
-          cat > android/app/src/main/AndroidManifest.xml << 'MANIFEST_EOF'
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <uses-permission android:name="android.permission.INTERNET"/>
-              <uses-permission android:name="android.permission.CAMERA"/>
-              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
-              <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
-              <uses-feature android:name="android.hardware.camera" android:required="true"/>
-              <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
-              <application android:label="ToolBox" android:name="${applicationName}" android:icon="@mipmap/ic_launcher">
-                  <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop" android:theme="@style/LaunchTheme" android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode" android:hardwareAccelerated="true" android:windowSoftInputMode="adjustResize">
-                      <meta-data android:name="io.flutter.embedding.android.NormalTheme" android:resource="@style/NormalTheme" />
-                      <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
-                  </activity>
-                  <meta-data android:name="flutterEmbedding" android:value="2" />
-              </application>
-          </manifest>
-          MANIFEST_EOF
-          echo "✅ AndroidX + Manifest + MainActivity 完成"
-
-      - name: Build Debug APK
-        run: flutter build apk --debug 2>&1 | tee /tmp/flutter_build.log | tail -50
-
-      - name: 查找并复制 APK (容错版)
+      - name: Locate APK
+        id: locate
         run: |
-          echo "🔍 搜索 build 目录中的所有 .apk..."
-          find build -name "*.apk" -type f 2>/dev/null || true
-          echo "---"
-          echo "=== Flutter Build Log (最后 30 行) ==="
-          tail -30 /tmp/flutter_build.log 2>/dev/null || true
-          echo "---"
-          mkdir -p dist
-          APK_PATH=""
-          for path in \
-            "build/app/outputs/flutter-apk/app-debug.apk" \
-            "build/app/outputs/apk/debug/app-debug.apk" \
-            "build/app/outputs/apk/app-debug.apk" \
-            "build/app/outputs/apk/release/app-release.apk" \
-            "build/app/outputs/flutter-apk/app-release.apk"; do
-            if [ -f "$path" ]; then
-              APK_PATH="$path"
-              echo "✅ 找到: $path"
-              break
-            fi
-          done
-          if [ -z "$APK_PATH" ]; then
-            echo "⚠️ 未找到任何 APK (Build 可能失败了)"
-            echo "显示 build 目录结构:"
-            find build -type d 2>/dev/null | head -20 || true
-            # 不退出 1,改为成功退出(让日志上传步骤能跑)
-            exit 0
+          find build -name "*.apk" -type f 2>/dev/null
+          APK=$(find build -name "*.apk" -type f 2>/dev/null | head -1)
+          if [ -n "$APK" ]; then
+            echo "APK_PATH=$APK" >> $GITHUB_ENV
+          else
+            echo "NO_APK=true" >> $GITHUB_ENV
           fi
-          cp "$APK_PATH" dist/toolbox-0.1.0-debug.apk
-          echo "✅ 复制成功"
-          ls -lh dist/
         continue-on-error: true
 
       - name: Upload APK
+        if: env.APK_PATH != ''
         uses: actions/upload-artifact@v4
         with:
-          name: toolbox-debug-apk
-          description: ToolBox Debug APK
-          path: dist/toolbox-0.1.0-debug.apk
-          retention-days: 90
+          name: app-release
+          path: ${{ env.APK_PATH }}
           if-no-files-found: warn
+          retention-days: 30
 
-      - name: Upload Flutter Build Log (调试用)
+      - name: Upload build log (always)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: flutter-build-log
-          description: Flutter 构建日志(供调试)
           path: /tmp/flutter_build.log
-          retention-days: 7
           if-no-files-found: ignore
+          retention-days: 30
 
-      - name: Upload logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs
-          path: |
-            build/**/*.log
-            ~/.gradle/daemon/**/*.out.log
-          retention-days: 7
-          if-no-files-found: ignore
+      - name: Print build log tail
+        if: always()
+        run: |
+          echo "==================== BUILD LOG TAIL (200 lines) ===================="
+          tail -200 /tmp/flutter_build.log 2>/dev/null || echo "No build log"
+          echo "==================== END ===================="
