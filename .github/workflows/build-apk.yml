@@ -1,0 +1,79 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: 'stable'
+
+      - name: Cache pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            .dart_tool
+          key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Create keystore
+        run: |
+          mkdir -p android/app/keystore
+          keytool -genkey -v \
+            -keystore android/app/keystore/upload.jks \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -alias upload \
+            -storepass 123456 -keypass 123456 \
+            -dname "CN=ToolBox,O=ToolBox,C=US"
+
+      - name: Create key.properties
+        run: |
+          echo "storeFile=keystore/upload.jks" > android/key.properties
+          echo "storePassword=123456" >> android/key.properties
+          echo "keyAlias=upload" >> android/key.properties
+          echo "keyPassword=123456" >> android/key.properties
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - name: Build AAB
+        run: flutter build appbundle --release
+
+      - name: Copy APK to dist
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/toolbox-0.1.0.apk
+          cp build/app/outputs/bundle/release/app-release.aab dist/toolbox-0.1.0.aab
+          ls -lh dist/
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: toolbox-release-apk
+          path: |
+            dist/toolbox-0.1.0.apk
+            dist/toolbox-0.1.0.aab
+          retention-days: 90
