@@ -80,7 +80,7 @@ Uint8List _runWarp(_WarpTask task) {
     const ui.Offset(0, 0),
     ui.Offset(task.outW.toDouble(), 0),
     ui.Offset(task.outW.toDouble(), task.outH.toDouble()),
-    const ui.Offset(0, task.outH.toDouble()),
+    ui.Offset(0, task.outH.toDouble()),
   ];
 
   // 计算单应矩阵 H(将源点映射到目标点)

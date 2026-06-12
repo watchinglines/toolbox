@@ -53,7 +53,7 @@ class ScannerRepositoryImpl implements ScannerRepository {
   }) async {
     final cameras = await getAvailableCameras();
     if (cameras.isEmpty) {
-      throw const CameraException('NoCamera', '未找到可用相机');
+      throw CameraException('NoCamera', '未找到可用相机');
     }
     final target = cameras.firstWhere(
       (c) => c.lensDirection == direction,

@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../app/di.dart';
 import '../../data/scanner_repository.dart';
+import '../../data/pdf_exporter.dart';
 import '../../domain/scanned_document.dart';
 
 /// ---------------- Events ----------------

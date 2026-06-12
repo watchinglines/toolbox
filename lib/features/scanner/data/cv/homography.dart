@@ -46,8 +46,10 @@ class HomographyEstimator {
     assert(src.length == 4 && dst.length == 4, '需要 4 对点');
 
     // 1. 数据归一化(提升数值稳定性)
-    final normSrc = _normalize(src);
-    final normDst = _normalize(dst);
+    final _NormData normSrcData = _normalize(src);
+    final _NormData normDstData = _normalize(dst);
+    final normSrc = normSrcData.normalized;
+    final normDst = normDstData.normalized;
 
     // 2. 构建 8x8 线性方程组 Ax = 0
     // 每对点贡献 2 行:[-X,-Y,-1,0,0,0,xX,xY,x] 和 [0,0,0,-X,-Y,-1,yX,yY,y]
@@ -83,7 +85,7 @@ class HomographyEstimator {
       h20: h[6], h21: h[7],
     );
 
-    return _denormalize(H, normSrc.norm, normDst.norm);
+    return _denormalize(H, normSrcData.norm, normDstData.norm);
   }
 
   static _NormData _normalize(List<ui.Offset> pts) {

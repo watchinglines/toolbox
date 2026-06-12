@@ -109,7 +109,7 @@ Uint8List _runPerspective(_PerspectiveTask task) {
     const ui.Offset(0, 0),
     ui.Offset(outW.toDouble(), 0),
     ui.Offset(outW.toDouble(), outH.toDouble()),
-    const ui.Offset(0, outH.toDouble()),
+    ui.Offset(0, outH.toDouble()),
   ];
 
   // 1. 尝试 OpenCV FFI
