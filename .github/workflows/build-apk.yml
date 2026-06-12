@@ -1,4 +1,4 @@
-name: Build Android APK (Dart 修复 + SDK 35 终极版)
+name: Build Android APK (完整可粘贴版)
 
 on:
   push:
@@ -27,19 +27,15 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      uses: android-actions/setup-android@v3
-      with:
-        cmdline-tools-version: '11076708'
-        packages: |
-          platforms;android-35
-          build-tools;35.0.0
-        accept-android-sdk-licenses: true
-        log-accepted-android-sdk-licenses: false
-
-      - name: 接受 Android SDK 许可
-        run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
-          echo "✅ SDK 许可已接受"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '11076708'
+          packages: |
+            platforms;android-35
+            build-tools;35.0.0
+          accept-android-sdk-licenses: true
+          log-accepted-android-sdk-licenses: false
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -87,7 +83,7 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: 配置 AndroidX + Manifest
+      - name: 配置 AndroidX + Manifest + MainActivity
         run: |
           cat > android/gradle.properties << 'EOF'
           org.gradle.jvmargs=-Xmx4G -XX:MaxMetaspaceSize=2G -XX:+HeapDumpOnOutOfMemoryError
@@ -97,6 +93,7 @@ jobs:
           android.defaults.buildfeatures.buildconfig=true
           kotlin.code.style=official
           EOF
+
           mkdir -p android/app/src/main/kotlin/com/toolbox/scanner
           cat > android/app/src/main/kotlin/com/toolbox/scanner/MainActivity.kt << 'KT_EOF'
           package com.toolbox.scanner
@@ -120,6 +117,7 @@ jobs:
               }
           }
           KT_EOF
+
           cat > android/app/src/main/AndroidManifest.xml << 'MANIFEST_EOF'
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET"/>
@@ -137,7 +135,7 @@ jobs:
               </application>
           </manifest>
           MANIFEST_EOF
-          echo "✅ AndroidX + Manifest 完成"
+          echo "✅ AndroidX + Manifest + MainActivity 完成"
 
       - name: Build Debug APK
         run: flutter build apk --debug 2>&1 | tail -50
