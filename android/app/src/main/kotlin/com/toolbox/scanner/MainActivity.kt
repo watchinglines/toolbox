@@ -1,4 +1,4 @@
-package com.example.toolbox_scanner
+package com.toolbox.scanner
 
 import io.flutter.embedding.android.FlutterFragmentActivity
 
