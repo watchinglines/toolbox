@@ -1,4 +1,4 @@
-name: Build Android APK (使用系统 SDK)
+name: Build Android APK (使用系统 SDK + 强制 v2 embedding)
 
 on:
   push:
@@ -72,17 +72,19 @@ jobs:
           flutter config --no-analytics
           git config --global --add safe.directory '*'
           flutter config --android-sdk $ANDROID_HOME
-          echo "✅ Flutter Android SDK: $ANDROID_HOME"
 
       - name: 配置 local.properties
         run: |
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
           cat android/local.properties
 
-      - name: 探测最高 SDK 并匹配 compileSdk
+      - name: 配置 compileSdk 匹配系统 SDK
         run: |
-          MAX_SDK=$(ls $ANDROID_HOME/platforms/ 2>/dev/null | grep -oE 'android-[0-9]+' | sort -V | tail -1 | sed 's/android-//')
-          MAX_SDK=${MAX_SDK:-34}
+          if [ -d "$ANDROID_HOME/platforms" ]; then
+            MAX_SDK=$(ls $ANDROID_HOME/platforms/ | grep -oE 'android-[0-9]+' | sort -V | tail -1 | sed 's/android-//')
+          else
+            MAX_SDK=34
+          fi
           echo "✅ 系统最高 SDK: $MAX_SDK"
           find android -name "build.gradle*" -type f -exec sed -i \
             -e "s/compileSdk = flutter.compileSdkVersion/compileSdk = $MAX_SDK/g" \
@@ -90,6 +92,27 @@ jobs:
             -e "s/targetSdk = flutter.targetSdkVersion/targetSdk = $MAX_SDK/g" \
             -e "s/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion $MAX_SDK/g" {} \;
           echo "✅ compileSdk/targetSdk → $MAX_SDK"
+
+      - name: 🔧 强制 v2 embedding (修复 deleted v1 embedding 错误)
+        run: |
+          GRADLE_FILE="android/app/build.gradle.kts"
+          if [ -f "$GRADLE_FILE" ]; then
+            sed -i '/externalNativeBuild {/,/^[[:space:]]*}/d' $GRADLE_FILE
+            sed -i '/cmake {/,/^[[:space:]]*}/d' $GRADLE_FILE
+            sed -i '/proguardFiles/,/)/d' $GRADLE_FILE
+            sed -i 's/isMinifyEnabled = true/isMinifyEnabled = false/g' $GRADLE_FILE
+            sed -i 's/isShrinkResources = true/isShrinkResources = false/g' $GRADLE_FILE
+            echo "✅ build.gradle.kts 已清理 v1 embedding 残留"
+          fi
+          GRADLE_GROOVY="android/app/build.gradle"
+          if [ -f "$GRADLE_GROOVY" ]; then
+            sed -i '/externalNativeBuild {/,/^[[:space:]]*}/d' $GRADLE_GROOVY
+            sed -i '/cmake {/,/^[[:space:]]*}/d' $GRADLE_GROOVY
+            sed -i '/proguardFiles/,/)/d' $GRADLE_GROOVY
+            sed -i 's/minifyEnabled true/minifyEnabled false/g' $GRADLE_GROOVY
+            sed -i 's/shrinkResources true/shrinkResources false/g' $GRADLE_GROOVY
+            echo "✅ build.gradle 已清理"
+          fi
 
       - name: Install dependencies
         run: flutter pub get
