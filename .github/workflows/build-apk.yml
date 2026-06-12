@@ -27,6 +27,20 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
+      - name: 设置 Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '11076708'
+          platforms: 'android-35'
+          build-tools-version: '35.0.0'
+          cache: true
+          install-chrome: false
+
+      - name: 接受 Android SDK 许可
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+          echo "✅ SDK 许可已接受"
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -41,6 +55,20 @@ jobs:
           echo "🏗️  重新生成 android 目录..."
           flutter create --org com.toolbox --project-name scanner --platforms=android --no-pub . 2>&1 | tail -20
           echo "✅ 重建完成"
+          
+          # 升级 compileSdk 到 35
+          if [ -f android/app/build.gradle.kts ]; then
+            sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 35/' android/app/build.gradle.kts
+            sed -i 's/compileSdk = 34/compileSdk = 35/' android/app/build.gradle.kts
+            sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 35/' android/app/build.gradle.kts
+            sed -i 's/targetSdk = 34/targetSdk = 35/' android/app/build.gradle.kts
+            echo "✅ build.gradle.kts: compileSdk/targetSdk → 35"
+          fi
+          if [ -f android/app/build.gradle ]; then
+            sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 35/' android/app/build.gradle
+            sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 35/' android/app/build.gradle
+            echo "✅ build.gradle: compileSdk/targetSdk → 35"
+          fi
           ls -la android/
 
       - name: Configure Flutter
