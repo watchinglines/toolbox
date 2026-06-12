@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.toolbox.scanner"
-    compileSdk = 34
+    compileSdk = 34 // or your target SDK
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -18,19 +18,17 @@ android {
         jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
-    defaultConfig {
-        applicationId = "com.toolbox.scanner"
-        // 关键: minSdk 21+ 才能使用 v2 embedding
-        minSdk = 26
-        targetSdk = 34
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
-        multiDexEnabled = true
-        ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
-        }
-        // 不要设置 android.useAndroidX=false 或 android.enableJetifier=false
-        // 这些会强制 v1 embedding
+   defaultConfig {
+        applicationId "com.toolbox.scanner"
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName "0.1.0"
+        
+        // Force v2 embedding
+        manifestPlaceholders = [
+            'flutter_embedding_v2': 'true'
+        ]
     }
 
     buildTypes {
