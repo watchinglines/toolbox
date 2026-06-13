@@ -1,4 +1,4 @@
-name: Build Android APK (clean + direct gradle)
+name: Build Android APK (clean + direct gradle + aggressive cleanup)
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ jobs:
         uses: actions/checkout@v4
 
       # =============== STEP 1: SHOW FULL TREE ===============
-      - name: Show full project tree
+      - name: Show full project tree BEFORE cleanup
         run: |
           echo "=== ROOT FILES ==="
           ls -la
@@ -25,23 +25,30 @@ jobs:
           echo "=== android/ tree ==="
           find android -type f 2>/dev/null | sort
 
-      # =============== STEP 2: CLEAN ROOT RESIDUE ===============
-      - name: Clean root-level residue files
+      # =============== STEP 2: AGGRESSIVE CLEANUP ===============
+      - name: Aggressive cleanup (root + all subdirs)
         run: |
-          echo "=== Removing any root-level misplaced files ==="
-          rm -fv MainActivity.kt
-          rm -fv android-app-build.gradle
-          rm -fv android-app-build.gradle.kts
-          rm -fv android-app-src-main-AndroidManifest.xml
-          rm -fv android-gradle.properties
+          echo "=== Cleaning root-level misplaced files ==="
+          rm -fv MainActivity.kt 2>/dev/null || true
+          rm -fv android-app-build.gradle 2>/dev/null || true
+          rm -fv android-app-build.gradle.kts 2>/dev/null || true
+          rm -fv android-app-src-main-AndroidManifest.xml 2>/dev/null || true
+          rm -fv android-gradle.properties 2>/dev/null || true
           echo ""
-          echo "=== After cleanup ==="
-          ls -la
+          echo "=== Cleaning android/ subdir misplaced files ==="
+          rm -fv android/app/android-app-build.gradle 2>/dev/null || true
+          rm -fv android/app/android-app-build.gradle.kts 2>/dev/null || true
+          rm -fv android/app/src/main/android-app-src-main-AndroidManifest.xml 2>/dev/null || true
+          rm -fv android/android-gradle.properties 2>/dev/null || true
+          rm -fv android/android-app-build.gradle.kts 2>/dev/null || true
+          echo ""
+          echo "=== AFTER cleanup: project tree ==="
+          find . -type f -not -path "./.git/*" | sort
 
       # =============== STEP 3: VERIFY CONFIG ===============
       - name: Verify v2 embedding config
         run: |
-          echo "=== MainActivity ==="
+          echo "=== MainActivity (final) ==="
           find android -name "MainActivity.*" -exec echo "--- {} ---" \; -exec cat {} \;
           echo ""
           echo "=== flutterEmbedding meta-data ==="
@@ -77,15 +84,15 @@ jobs:
         run: flutter pub get
 
       # =============== STEP 5: BUILD APK ===============
-      - name: Build APK via gradle assembleRelease
+      - name: Build APK
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: |
           set +e
-          echo "=======================" >> /tmp/gradle_build.log
-          echo "=== flutter build apk --release -v ===" >> /tmp/gradle_build.log
-          echo "=======================" >> /tmp/gradle_build.log
+          echo "=======================" >> /tmp/flutter_build.log
+          echo "=== flutter build apk --release -v ===" >> /tmp/flutter_build.log
+          echo "=======================" >> /tmp/flutter_build.log
           flutter build apk --release -v 2>&1 | tee /tmp/flutter_build.log
           BUILD_RC=${PIPESTATUS[0]}
           echo "FLUTTER_BUILD_RC=$BUILD_RC"
