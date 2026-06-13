@@ -1,145 +1,79 @@
-name: Build Android APK (clean + direct gradle + aggressive cleanup)
+name: Build APK
 
-on:
-  workflow_dispatch:
-  push:
-    branches: [ main, master ]
+on: workflow_dispatch
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # =============== STEP 1: SHOW FULL TREE ===============
-      - name: Show full project tree BEFORE cleanup
-        run: |
-          echo "=== ROOT FILES ==="
-          ls -la
-          echo ""
-          echo "=== ALL FILES (excluding .git) ==="
-          find . -type f -not -path "./.git/*" | sort
-          echo ""
-          echo "=== android/ tree ==="
-          find android -type f 2>/dev/null | sort
-
-      # =============== STEP 2: AGGRESSIVE CLEANUP ===============
-      - name: Aggressive cleanup (root + all subdirs)
-        run: |
-          echo "=== Cleaning root-level misplaced files ==="
-          rm -fv MainActivity.kt 2>/dev/null || true
-          rm -fv android-app-build.gradle 2>/dev/null || true
-          rm -fv android-app-build.gradle.kts 2>/dev/null || true
-          rm -fv android-app-src-main-AndroidManifest.xml 2>/dev/null || true
-          rm -fv android-gradle.properties 2>/dev/null || true
-          echo ""
-          echo "=== Cleaning android/ subdir misplaced files ==="
-          rm -fv android/app/android-app-build.gradle 2>/dev/null || true
-          rm -fv android/app/android-app-build.gradle.kts 2>/dev/null || true
-          rm -fv android/app/src/main/android-app-src-main-AndroidManifest.xml 2>/dev/null || true
-          rm -fv android/android-gradle.properties 2>/dev/null || true
-          rm -fv android/android-app-build.gradle.kts 2>/dev/null || true
-          echo ""
-          echo "=== AFTER cleanup: project tree ==="
-          find . -type f -not -path "./.git/*" | sort
-
-      # =============== STEP 3: VERIFY CONFIG ===============
-      - name: Verify v2 embedding config
-        run: |
-          echo "=== MainActivity (final) ==="
-          find android -name "MainActivity.*" -exec echo "--- {} ---" \; -exec cat {} \;
-          echo ""
-          echo "=== flutterEmbedding meta-data ==="
-          grep -A1 flutterEmbedding android/app/src/main/AndroidManifest.xml || echo "MISSING"
-          echo ""
-          echo "=== build.gradle.kts (full) ==="
-          cat android/app/build.gradle.kts
-          echo ""
-          echo "=== gradle.properties ==="
-          cat android/gradle.properties
-          echo ""
-          echo "=== settings.gradle.kts (full) ==="
-          cat android/settings.gradle.kts
-
-      # =============== STEP 4: SETUP ENV ===============
-      - name: Setup Java 17
+      - uses: actions/checkout@v4
+      
+      - name: Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Setup Flutter
+      
+      - name: Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.24.5'
-          channel: stable
-          cache: true
-
-      - name: Disable analytics
-        run: flutter --disable-analytics
-
-      - name: Get dependencies
-        run: flutter pub get
-
-      # =============== STEP 5: BUILD APK ===============
-      - name: Build APK
+      
+      - name: ALL IN ONE
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: |
-          set +e
-          echo "=======================" >> /tmp/flutter_build.log
-          echo "=== flutter build apk --release -v ===" >> /tmp/flutter_build.log
-          echo "=======================" >> /tmp/flutter_build.log
-          flutter build apk --release -v 2>&1 | tee /tmp/flutter_build.log
-          BUILD_RC=${PIPESTATUS[0]}
-          echo "FLUTTER_BUILD_RC=$BUILD_RC"
-          echo "FLUTTER_BUILD_RC=$BUILD_RC" >> /tmp/flutter_build.log
-          exit $BUILD_RC
-        continue-on-error: true
-
-      # =============== STEP 6: LOCATE APK ===============
-      - name: Locate APK
-        id: locate
-        run: |
-          echo "=== Searching for APK ==="
-          find build -name "*.apk" -type f 2>/dev/null
-          APK=$(find build -name "*.apk" -type f 2>/dev/null | head -1)
-          if [ -n "$APK" ]; then
-            echo "APK_PATH=$APK" >> $GITHUB_ENV
-            echo "FOUND=true" >> $GITHUB_ENV
-            echo "APK size: $(du -h "$APK" | cut -f1)"
-          else
-            echo "FOUND=false" >> $GITHUB_ENV
-            echo "No APK found!"
-          fi
-        continue-on-error: true
-
-      # =============== STEP 7: UPLOAD APK ===============
-      - name: Upload APK
-        if: env.FOUND == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-release
-          path: ${{ env.APK_PATH }}
-          if-no-files-found: warn
-          retention-days: 30
-
-      # =============== STEP 8: UPLOAD LOGS ===============
-      - name: Upload build log (always)
+          {
+            echo "=== STEP A: ROOT FILES ==="
+            ls -la
+            echo ""
+            echo "=== STEP A: ALL FILES ==="
+            find . -type f -not -path "./.git/*" | sort
+            echo ""
+            echo "=== STEP A: ANDROID TREE ==="
+            find android -type f 2>/dev/null | sort
+            echo ""
+            echo "=== STEP B: CLEANUP ==="
+            rm -fv MainActivity.kt 2>/dev/null || true
+            rm -fv android-app-build.gradle* 2>/dev/null || true
+            rm -fv android-app-src-main-AndroidManifest.xml 2>/dev/null || true
+            rm -fv android-gradle.properties 2>/dev/null || true
+            rm -fv android/app/android-app-build.gradle* 2>/dev/null || true
+            rm -fv android/app/src/main/android-app-src-main-AndroidManifest.xml 2>/dev/null || true
+            rm -fv android/android-gradle.properties 2>/dev/null || true
+            echo ""
+            echo "=== STEP C: ACTIVE FILES ==="
+            echo "--- gradle.properties ---"
+            cat android/gradle.properties
+            echo ""
+            echo "--- build.gradle.kts ---"
+            cat android/app/build.gradle.kts
+            echo ""
+            echo "--- MainActivity ---"
+            find android -name "MainActivity.*" -exec cat {} \;
+            echo ""
+            echo "--- manifest flutterEmbedding ---"
+            grep -A1 flutterEmbedding android/app/src/main/AndroidManifest.xml
+            echo ""
+            echo "=== STEP D: BUILD ==="
+            flutter --disable-analytics
+            flutter pub get
+            echo "--- pub get done ---"
+            flutter build apk --release -v
+            echo "--- build done ---"
+            echo ""
+            echo "=== STEP E: APK ==="
+            find build -name "*.apk" 2>/dev/null
+          } > /tmp/full.log 2>&1
+          echo "Log written. Size: $(wc -c < /tmp/full.log) bytes"
+          exit 0
+      
+      - name: Upload log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: flutter-build-log
-          path: /tmp/flutter_build.log
+          name: full-log
+          path: /tmp/full.log
           if-no-files-found: ignore
-          retention-days: 30
-
-      - name: Print last 100 lines of build log
-        if: always()
-        run: |
-          echo "==================== LAST 100 LINES ===================="
-          tail -100 /tmp/flutter_build.log 2>/dev/null || echo "No log"
-          echo "==================== END ===================="
