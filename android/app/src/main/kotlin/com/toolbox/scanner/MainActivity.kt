@@ -1,12 +1,10 @@
-// android/app/src/main/kotlin/com/toolbox/scanner/MainActivity.kt
 package com.toolbox.scanner
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : FlutterActivity() {
-
+class MainActivity : FlutterFragmentActivity() {
     private val CHANNEL = "com.toolbox/native"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -18,11 +16,11 @@ class MainActivity : FlutterActivity() {
                         result.success("Android ${android.os.Build.VERSION.RELEASE}")
                     }
                     "scanDocument" -> {
-                        // 实际集成 google_mlkit_document_scanner
+                        // TODO: integrate google_mlkit_document_scanner
                         result.success(null)
                     }
                     "startAR" -> {
-                        // ARCore 测量
+                        // TODO: ARCore measurement
                         result.success(null)
                     }
                     else -> result.notImplemented()
