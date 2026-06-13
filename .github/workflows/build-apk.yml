@@ -1,4 +1,4 @@
-name: Build Android APK (auto-fix paths + detect gradle)
+name: Build Android APK (clean + direct gradle)
 
 on:
   workflow_dispatch:
@@ -13,106 +13,50 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # =============== AUTO-FIX FILE PATHS ===============
-      - name: Auto-fix misplaced files
+      # =============== STEP 1: SHOW FULL TREE ===============
+      - name: Show full project tree
         run: |
-          echo "=== BEFORE: root files ==="
+          echo "=== ROOT FILES ==="
           ls -la
           echo ""
-
-          # Move android-app-build.gradle -> android/app/build.gradle (Groovy)
-          if [ -f "android-app-build.gradle" ]; then
-            mkdir -p android/app
-            mv -v "android-app-build.gradle" "android/app/build.gradle"
-          fi
-
-          # Move android-app-build.gradle.kts -> android/app/build.gradle.kts (Kotlin DSL)
-          if [ -f "android-app-build.gradle.kts" ]; then
-            mkdir -p android/app
-            mv -v "android-app-build.gradle.kts" "android/app/build.gradle.kts"
-          fi
-
-          # Move android-app-src-main-AndroidManifest.xml -> android/app/src/main/AndroidManifest.xml
-          if [ -f "android-app-src-main-AndroidManifest.xml" ]; then
-            mkdir -p android/app/src/main
-            mv -v "android-app-src-main-AndroidManifest.xml" "android/app/src/main/AndroidManifest.xml"
-          fi
-
-          # Move android-gradle.properties -> android/gradle.properties
-          if [ -f "android-gradle.properties" ]; then
-            mkdir -p android
-            mv -v "android-gradle.properties" "android/gradle.properties"
-          fi
-
-          # Move MainActivity.kt -> android/app/src/main/kotlin/com/toolbox/scanner/MainActivity.kt
-          if [ -f "MainActivity.kt" ]; then
-            mkdir -p android/app/src/main/kotlin/com/toolbox/scanner
-            mv -v "MainActivity.kt" "android/app/src/main/kotlin/com/toolbox/scanner/MainActivity.kt"
-          fi
-
+          echo "=== ALL FILES (excluding .git) ==="
+          find . -type f -not -path "./.git/*" | sort
           echo ""
-          echo "=== AFTER: project tree ==="
-          ls -la
-          echo "--- android dir ---"
-          find android -type f 2>/dev/null
-      # ==================================================
+          echo "=== android/ tree ==="
+          find android -type f 2>/dev/null | sort
 
+      # =============== STEP 2: CLEAN ROOT RESIDUE ===============
+      - name: Clean root-level residue files
+        run: |
+          echo "=== Removing any root-level misplaced files ==="
+          rm -fv MainActivity.kt
+          rm -fv android-app-build.gradle
+          rm -fv android-app-build.gradle.kts
+          rm -fv android-app-src-main-AndroidManifest.xml
+          rm -fv android-gradle.properties
+          echo ""
+          echo "=== After cleanup ==="
+          ls -la
+
+      # =============== STEP 3: VERIFY CONFIG ===============
       - name: Verify v2 embedding config
         run: |
           echo "=== MainActivity ==="
           find android -name "MainActivity.*" -exec echo "--- {} ---" \; -exec cat {} \;
           echo ""
-          echo "=== AndroidManifest flutterEmbedding ==="
+          echo "=== flutterEmbedding meta-data ==="
           grep -A1 flutterEmbedding android/app/src/main/AndroidManifest.xml || echo "MISSING"
           echo ""
-
-          echo "=== App build.gradle (detect) ==="
-          if [ -f "android/app/build.gradle" ]; then
-            echo "Found: android/app/build.gradle (Groovy)"
-            head -80 android/app/build.gradle
-          elif [ -f "android/app/build.gradle.kts" ]; then
-            echo "Found: android/app/build.gradle.kts (Kotlin DSL)"
-            head -80 android/app/build.gradle.kts
-          else
-            echo "ERROR: No build.gradle or build.gradle.kts found"
-            find android -name "build.gradle*" 2>/dev/null
-            exit 1
-          fi
+          echo "=== build.gradle.kts (full) ==="
+          cat android/app/build.gradle.kts
           echo ""
-
           echo "=== gradle.properties ==="
           cat android/gradle.properties
           echo ""
+          echo "=== settings.gradle.kts (full) ==="
+          cat android/settings.gradle.kts
 
-          echo "=== Project-level build.gradle (if any) ==="
-          if [ -f "android/build.gradle" ]; then
-            echo "--- android/build.gradle ---"
-            cat android/build.gradle
-          fi
-          if [ -f "android/build.gradle.kts" ]; then
-            echo "--- android/build.gradle.kts ---"
-            cat android/build.gradle.kts
-          fi
-          echo ""
-
-          echo "=== settings.gradle (if any) ==="
-          if [ -f "android/settings.gradle" ]; then
-            echo "--- android/settings.gradle ---"
-            cat android/settings.gradle
-          fi
-          if [ -f "android/settings.gradle.kts" ]; then
-            echo "--- android/settings.gradle.kts ---"
-            cat android/settings.gradle.kts
-          fi
-          echo ""
-
-          echo "=== local.properties (ANDROID SDK location) ==="
-          cat android/local.properties 2>/dev/null || echo "no local.properties"
-          echo ""
-
-          echo "=== app/src/main/ tree ==="
-          find android/app/src/main -type f 2>/dev/null
-
+      # =============== STEP 4: SETUP ENV ===============
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
@@ -126,31 +70,49 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Disable analytics
+        run: flutter --disable-analytics
+
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Build APK
+      # =============== STEP 5: BUILD APK ===============
+      - name: Build APK via gradle assembleRelease
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: |
+          set +e
+          echo "=======================" >> /tmp/gradle_build.log
+          echo "=== flutter build apk --release -v ===" >> /tmp/gradle_build.log
+          echo "=======================" >> /tmp/gradle_build.log
           flutter build apk --release -v 2>&1 | tee /tmp/flutter_build.log
+          BUILD_RC=${PIPESTATUS[0]}
+          echo "FLUTTER_BUILD_RC=$BUILD_RC"
+          echo "FLUTTER_BUILD_RC=$BUILD_RC" >> /tmp/flutter_build.log
+          exit $BUILD_RC
         continue-on-error: true
 
+      # =============== STEP 6: LOCATE APK ===============
       - name: Locate APK
         id: locate
         run: |
+          echo "=== Searching for APK ==="
           find build -name "*.apk" -type f 2>/dev/null
           APK=$(find build -name "*.apk" -type f 2>/dev/null | head -1)
           if [ -n "$APK" ]; then
             echo "APK_PATH=$APK" >> $GITHUB_ENV
+            echo "FOUND=true" >> $GITHUB_ENV
+            echo "APK size: $(du -h "$APK" | cut -f1)"
           else
-            echo "NO_APK=true" >> $GITHUB_ENV
+            echo "FOUND=false" >> $GITHUB_ENV
+            echo "No APK found!"
           fi
         continue-on-error: true
 
+      # =============== STEP 7: UPLOAD APK ===============
       - name: Upload APK
-        if: env.APK_PATH != ''
+        if: env.FOUND == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: app-release
@@ -158,6 +120,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+      # =============== STEP 8: UPLOAD LOGS ===============
       - name: Upload build log (always)
         if: always()
         uses: actions/upload-artifact@v4
@@ -167,9 +130,9 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
-      - name: Print build log tail
+      - name: Print last 100 lines of build log
         if: always()
         run: |
-          echo "==================== BUILD LOG TAIL (200 lines) ===================="
-          tail -200 /tmp/flutter_build.log 2>/dev/null || echo "No build log"
+          echo "==================== LAST 100 LINES ===================="
+          tail -100 /tmp/flutter_build.log 2>/dev/null || echo "No log"
           echo "==================== END ===================="
